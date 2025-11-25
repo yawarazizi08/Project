@@ -1,0 +1,57 @@
+// Define Kabul City Boundary
+var Study_area = ee.FeatureCollection('projects/ee-yazizi/assets/Kabul_city');
+
+// Function to mask clouds using the Sentinel-2 QA band
+function maskS2clouds(image) {
+  var qa = image.select('QA60');
+
+  // Bits 10 and 11 are clouds and cirrus, respectively.
+  var cloudBitMask = 1 << 10;
+  var cirrusBitMask = 1 << 11;
+
+  // Both flags should be set to zero, indicating clear conditions.
+  var mask = qa.bitwiseAnd(cloudBitMask).eq(0)
+      .and(qa.bitwiseAnd(cirrusBitMask).eq(0));
+
+  return image.updateMask(mask);
+}
+
+// Filter S2 collection and clip to area
+var dataset = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
+                  .filterDate('2025-08-10', '2025-08-20')
+                  .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE',5))
+                  .map(function(image){
+                    return maskS2clouds(image).clip(Study_area);
+                  });
+
+// Create median composite
+var imagery = dataset.median();
+
+// Select relevant bands and resample 20m bands to 10m
+var bands10m = ['B2','B3','B4','B8'];
+var bands20m = ['B11','B12'];
+
+// Resample 20m bands to 10m
+var resampled20m = imagery.select(bands20m).resample('bilinear');
+var final_image = imagery.select(bands10m).addBands(resampled20m);
+
+// Visualization parameters
+var visParams = {bands: ['B4','B3','B2'], min:0, max:3000};
+
+// Display the Imagery
+Map.centerObject(Study_area, 11);
+Map.addLayer(final_image, visParams, "Kabul City Imagery");
+
+Export.image.toDrive({
+  image: final_image,
+  description: 'Kabul_City_Imagery_S2',
+  folder: 'GEE_Exports',
+  fileNamePrefix: 'Kabul_S2',
+  region: Study_area,
+  scale: 10,
+  crs: 'EPSG:32642', // sets the projection to WGS 1984 UTM Zone 42N
+  maxPixels: 1e13
+});
+
+// Acknowledgment:
+// Debugging assistance and support throughout the project were provided by ChatGPT and Gemini.
